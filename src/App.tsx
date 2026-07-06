@@ -8,13 +8,15 @@ import { collection, onSnapshot, doc, setDoc, deleteDoc, getDocs } from "firebas
 import { db } from "./lib/firebase";
 import { encryptData, decryptData } from "./lib/crypto";
 import { PatientData } from "./types";
+import { buildPatientMarkdown } from "./lib/markdown";
 import LockScreen from "./components/LockScreen";
 import Chatroom from "./components/Chatroom";
 import PatientDetails from "./components/PatientDetails";
 import { 
   Users, Activity, ShieldCheck, LogOut, 
   Search, Plus, LayoutGrid, MessageSquare, 
-  Trash, Lock, AlertTriangle, ShieldAlert, Archive, FolderOpen, Download, RefreshCw
+  Trash, Lock, AlertTriangle, ShieldAlert, Archive, FolderOpen, Download, RefreshCw,
+  Folder, ChevronDown, ChevronRight
 } from "lucide-react";
 
 // Default empty patient template
@@ -130,6 +132,7 @@ export default function App() {
   // Search/Filter states
   const [searchTerm, setSearchTerm] = useState("");
   const [mainView, setMainView] = useState<"patients" | "chat" | "team" | "archives">("patients");
+  const [expandedMonths, setExpandedMonths] = useState<{ [key: string]: boolean }>({});
 
   // Custom Modal States (to replace native alert/prompt/confirm inside iframe)
   const [showAdmitModal, setShowAdmitModal] = useState(false);
@@ -368,6 +371,44 @@ export default function App() {
   const handleConfirmDischarge = async () => {
     if (!showDischargeModal) return;
     try {
+      const p = patients.find(pat => pat.id === showDischargeModal);
+      if (p && !(p as any).isDecryptError) {
+        // Automatically archive the patient clinical file before discharging (deleting)
+        const patientName = p.name || "Unnamed Patient";
+        const patientId = p.id;
+        const mdContent = buildPatientMarkdown(p);
+        
+        const archiveEntry = {
+          id: patientId,
+          name: patientName,
+          bed: p.bed || "TBD",
+          mrn: p.mrn || "N/A",
+          age: p.age || "N/A",
+          gender: p.gender || "Other",
+          diagnosis: p.diagnosis || "N/A",
+          archivedAt: new Date().toISOString(),
+          jsonData: p,
+          markdownData: mdContent,
+        };
+
+        const existingStr = localStorage.getItem("critisync_local_archives");
+        let archives: any[] = [];
+        if (existingStr) {
+          try {
+            archives = JSON.parse(existingStr);
+            if (!Array.isArray(archives)) archives = [];
+          } catch (e) {
+            archives = [];
+          }
+        }
+
+        // Filter out duplicate if it existed, and prepend the new one
+        archives = archives.filter((item: any) => item.id !== patientId);
+        archives.unshift(archiveEntry);
+
+        localStorage.setItem("critisync_local_archives", JSON.stringify(archives));
+      }
+
       await deleteDoc(doc(db, "patients", showDischargeModal));
       if (selectedPatientId === showDischargeModal) {
         setSelectedPatientId(null);
@@ -972,114 +1013,181 @@ export default function App() {
                   );
                 }
 
+                // Group archives by month and year
+                const groups: { [key: string]: any[] } = {};
+                archives.forEach((item: any) => {
+                  const date = new Date(item.archivedAt || new Date());
+                  const monthYear = date.toLocaleString("default", { month: "long", year: "numeric" });
+                  if (!groups[monthYear]) {
+                    groups[monthYear] = [];
+                  }
+                  groups[monthYear].push(item);
+                });
+
+                // Sort keys so that newer months appear first
+                const sortedKeys = Object.keys(groups).sort((a, b) => {
+                  const dateA = new Date(a);
+                  const dateB = new Date(b);
+                  return dateB.getTime() - dateA.getTime();
+                });
+
                 return (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {archives.map((item: any) => {
-                      const formattedDate = new Date(item.archivedAt).toLocaleDateString() + " " + new Date(item.archivedAt).toLocaleTimeString();
+                  <div className="space-y-4">
+                    {sortedKeys.map((monthYear) => {
+                      const monthItems = groups[monthYear];
+                      const isExpanded = expandedMonths[monthYear] !== false; // True by default
                       return (
-                        <div key={item.id} className="bg-[#161616] border border-[#222222] p-4 rounded flex flex-col justify-between space-y-4">
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[10px] font-mono bg-zinc-800 text-zinc-400 border border-zinc-700 px-2 py-0.5 rounded font-bold">
-                                Bed {item.bed || "N/A"}
-                              </span>
-                              <span className="text-[9px] text-zinc-500 font-sans">
-                                Archived: {formattedDate}
-                              </span>
+                        <div key={monthYear} className="border border-[#222222] rounded bg-[#131313]/50 overflow-hidden">
+                          {/* Folder Header */}
+                          <button
+                            onClick={() => {
+                              setExpandedMonths(prev => ({
+                                ...prev,
+                                [monthYear]: !isExpanded
+                              }));
+                            }}
+                            className="w-full flex items-center justify-between p-4 bg-[#181818]/80 hover:bg-[#1E1E1E] transition-all border-b border-[#222222] cursor-pointer text-left"
+                          >
+                            <div className="flex items-center gap-3">
+                              {isExpanded ? (
+                                <FolderOpen className="w-5 h-5 text-amber-400 fill-amber-400/20" />
+                              ) : (
+                                <Folder className="w-5 h-5 text-amber-500 fill-amber-500/10" />
+                              )}
+                              <div>
+                                <span className="font-serif text-sm font-bold text-zinc-150 italic">
+                                  {monthYear} Archives Folder
+                                </span>
+                                <span className="ml-2.5 text-[10px] bg-zinc-800 text-zinc-400 border border-zinc-750 px-2 py-0.5 rounded-full font-mono">
+                                  {monthItems.length} {monthItems.length === 1 ? "file" : "files"}
+                                </span>
+                              </div>
                             </div>
-                            
-                            <div>
-                              <h4 className="text-sm font-bold text-zinc-200">{item.name}</h4>
-                              <p className="text-[11px] text-zinc-400 mt-0.5 font-mono">
-                                MRN: {item.mrn || "N/A"} • {item.age}y / {item.gender}
-                              </p>
-                              <p className="text-xs text-zinc-500 mt-2 line-clamp-2">
-                                <strong>Diagnosis:</strong> {item.diagnosis || "N/A"}
-                              </p>
+                            <div className="text-zinc-500 hover:text-zinc-300">
+                              {isExpanded ? (
+                                <ChevronDown className="w-4 h-4" />
+                              ) : (
+                                <ChevronRight className="w-4 h-4" />
+                              )}
                             </div>
-                          </div>
+                          </button>
 
-                          <div className="pt-3 border-t border-[#222222]/55 flex flex-wrap gap-2 items-center justify-between">
-                            <div className="flex gap-1.5">
-                              <button
-                                onClick={() => {
-                                  const blob = new Blob([item.markdownData], { type: "text/markdown;charset=utf-8;" });
-                                  const url = URL.createObjectURL(blob);
-                                  const link = document.createElement("a");
-                                  link.href = url;
-                                  link.download = `ICU_Archive_${item.name.replace(/[^a-zA-Z0-9]/g, "_")}.md`;
-                                  document.body.appendChild(link);
-                                  link.click();
-                                  document.body.removeChild(link);
-                                }}
-                                className="bg-[#222222] hover:bg-[#2A2A2A] text-zinc-300 hover:text-white border border-[#333333] px-2.5 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
-                                title="Download report-ready clinical Markdown format"
-                              >
-                                <Download className="w-3.5 h-3.5 text-emerald-400" />
-                                Markdown
-                              </button>
-                              <button
-                                onClick={() => {
-                                  const jsonStr = JSON.stringify(item.jsonData, null, 2);
-                                  const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8;" });
-                                  const url = URL.createObjectURL(blob);
-                                  const link = document.createElement("a");
-                                  link.href = url;
-                                  link.download = `ICU_Archive_${item.name.replace(/[^a-zA-Z0-9]/g, "_")}.json`;
-                                  document.body.appendChild(link);
-                                  link.click();
-                                  document.body.removeChild(link);
-                                }}
-                                className="bg-[#222222] hover:bg-[#2A2A2A] text-zinc-300 hover:text-white border border-[#333333] px-2.5 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
-                                title="Download app-readable JSON file format"
-                              >
-                                <Download className="w-3.5 h-3.5 text-amber-400" />
-                                JSON
-                              </button>
-                            </div>
+                          {/* Folder Contents (Patient Cards) */}
+                          {isExpanded && (
+                            <div className="p-4 bg-[#0D0D0D]/40">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in">
+                                {monthItems.map((item: any) => {
+                                  const formattedDate = new Date(item.archivedAt).toLocaleDateString() + " " + new Date(item.archivedAt).toLocaleTimeString();
+                                  return (
+                                    <div key={item.id} className="bg-[#161616] border border-[#222222] p-4 rounded flex flex-col justify-between space-y-4 hover:border-emerald-500/20 transition-all">
+                                      <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-[10px] font-mono bg-zinc-800 text-zinc-400 border border-zinc-750 px-2 py-0.5 rounded font-bold">
+                                            Bed {item.bed || "N/A"}
+                                          </span>
+                                          <span className="text-[9px] text-zinc-500 font-sans">
+                                            Archived: {formattedDate}
+                                          </span>
+                                        </div>
+                                        
+                                        <div>
+                                          <h4 className="text-sm font-bold text-zinc-200">{item.name}</h4>
+                                          <p className="text-[11px] text-zinc-400 mt-0.5 font-mono">
+                                            MRN: {item.mrn || "N/A"} • {item.age}y / {item.gender}
+                                          </p>
+                                          <p className="text-xs text-zinc-500 mt-2 line-clamp-2">
+                                            <strong>Diagnosis:</strong> {item.diagnosis || "N/A"}
+                                          </p>
+                                        </div>
+                                      </div>
 
-                            <div className="flex gap-2">
-                              <button
-                                onClick={async () => {
-                                  if (confirm(`Do you want to restore "${item.name}" back to the active Patient Ward in the cloud?`)) {
-                                    try {
-                                      const plainTextJson = JSON.stringify(item.jsonData);
-                                      const encryptedBlob = await encryptData(plainTextJson, passphrase!);
-                                      const docRef = doc(db, "patients", item.id);
-                                      await setDoc(docRef, {
-                                        encryptedBlob: encryptedBlob,
-                                        updatedAt: new Date().toISOString(),
-                                        updatedBy: nickname || "System Restore"
-                                      });
-                                      alert(`"${item.name}" restored successfully. Check the Patient Ward!`);
-                                      setMainView("patients");
-                                    } catch (err: any) {
-                                      alert("Restoration failed: " + err.message);
-                                    }
-                                  }
-                                }}
-                                className="text-[10px] text-emerald-500 hover:text-emerald-400 font-bold uppercase tracking-widest cursor-pointer flex items-center gap-1"
-                                title="Restore patient record to live Cloud database"
-                              >
-                                <RefreshCw className="w-3 h-3 text-emerald-500" />
-                                Restore
-                              </button>
+                                      <div className="pt-3 border-t border-[#222222]/55 flex flex-wrap gap-2 items-center justify-between">
+                                        <div className="flex gap-1.5">
+                                          <button
+                                            onClick={() => {
+                                              const blob = new Blob([item.markdownData], { type: "text/markdown;charset=utf-8;" });
+                                              const url = URL.createObjectURL(blob);
+                                              const link = document.createElement("a");
+                                              link.href = url;
+                                              link.download = `ICU_Archive_${item.name.replace(/[^a-zA-Z0-9]/g, "_")}.md`;
+                                              document.body.appendChild(link);
+                                              link.click();
+                                              document.body.removeChild(link);
+                                            }}
+                                            className="bg-[#222222] hover:bg-[#2A2A2A] text-zinc-300 hover:text-white border border-[#333333] px-2.5 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
+                                            title="Download report-ready clinical Markdown format"
+                                          >
+                                            <Download className="w-3.5 h-3.5 text-emerald-400" />
+                                            Markdown
+                                          </button>
+                                          <button
+                                            onClick={() => {
+                                              const jsonStr = JSON.stringify(item.jsonData, null, 2);
+                                              const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8;" });
+                                              const url = URL.createObjectURL(blob);
+                                              const link = document.createElement("a");
+                                              link.href = url;
+                                              link.download = `ICU_Archive_${item.name.replace(/[^a-zA-Z0-9]/g, "_")}.json`;
+                                              document.body.appendChild(link);
+                                              link.click();
+                                              document.body.removeChild(link);
+                                            }}
+                                            className="bg-[#222222] hover:bg-[#2A2A2A] text-zinc-300 hover:text-white border border-[#333333] px-2.5 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
+                                            title="Download app-readable JSON file format"
+                                          >
+                                            <Download className="w-3.5 h-3.5 text-amber-400" />
+                                            JSON
+                                          </button>
+                                        </div>
 
-                              <button
-                                onClick={() => {
-                                  if (confirm(`Are you sure you want to delete the local archive for ${item.name}?`)) {
-                                    const updated = archives.filter((a: any) => a.id !== item.id);
-                                    localStorage.setItem("critisync_local_archives", JSON.stringify(updated));
-                                    window.location.reload();
-                                  }
-                                }}
-                                className="text-[10px] text-red-500 hover:text-red-400 font-bold uppercase tracking-widest cursor-pointer"
-                                title="Delete local backup permanently"
-                              >
-                                Delete
-                              </button>
+                                        <div className="flex gap-2">
+                                          <button
+                                            onClick={async () => {
+                                              if (confirm(`Do you want to restore "${item.name}" back to the active Patient Ward in the cloud?`)) {
+                                                try {
+                                                  const plainTextJson = JSON.stringify(item.jsonData);
+                                                  const encryptedBlob = await encryptData(plainTextJson, passphrase!);
+                                                  const docRef = doc(db, "patients", item.id);
+                                                  await setDoc(docRef, {
+                                                    encryptedBlob: encryptedBlob,
+                                                    updatedAt: new Date().toISOString(),
+                                                    updatedBy: nickname || "System Restore"
+                                                  });
+                                                  alert(`"${item.name}" restored successfully. Check the Patient Ward!`);
+                                                  setMainView("patients");
+                                                } catch (err: any) {
+                                                  alert("Restoration failed: " + err.message);
+                                                }
+                                              }
+                                            }}
+                                            className="text-[10px] text-emerald-500 hover:text-emerald-400 font-bold uppercase tracking-widest cursor-pointer flex items-center gap-1"
+                                            title="Restore patient record to live Cloud database"
+                                          >
+                                            <RefreshCw className="w-3 h-3 text-emerald-500" />
+                                            Restore
+                                          </button>
+
+                                          <button
+                                            onClick={() => {
+                                              if (confirm(`Are you sure you want to delete the local archive for ${item.name}?`)) {
+                                                const updated = archives.filter((a: any) => a.id !== item.id);
+                                                localStorage.setItem("critisync_local_archives", JSON.stringify(updated));
+                                                window.location.reload();
+                                              }
+                                            }}
+                                            className="text-[10px] text-red-500 hover:text-red-400 font-bold uppercase tracking-widest cursor-pointer"
+                                            title="Delete local backup permanently"
+                                          >
+                                            Delete
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             </div>
-                          </div>
+                          )}
                         </div>
                       );
                     })}
