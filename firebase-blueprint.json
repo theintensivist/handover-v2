@@ -1,0 +1,81 @@
+{
+  "entities": {
+    "GroupConfig": {
+      "title": "GroupConfig",
+      "description": "Secure group initialization verification configuration",
+      "type": "object",
+      "properties": {
+        "encryptedBlob": {
+          "type": "string",
+          "description": "Passphrase verification token encrypted with the group key"
+        },
+        "initializedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when the group key was initialized"
+        },
+        "initializedBy": {
+          "type": "string",
+          "description": "Clinician name who initialized the group key"
+        }
+      },
+      "required": ["encryptedBlob", "initializedAt", "initializedBy"]
+    },
+    "Patient": {
+      "title": "Patient",
+      "description": "Fully encrypted patient handover profile",
+      "type": "object",
+      "properties": {
+        "encryptedBlob": {
+          "type": "string",
+          "description": "Entire patient data object JSON encrypted with group key"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when last updated"
+        },
+        "updatedBy": {
+          "type": "string",
+          "description": "Clinician name who performed the update"
+        }
+      },
+      "required": ["encryptedBlob", "updatedAt", "updatedBy"]
+    },
+    "Chat": {
+      "title": "Chat",
+      "description": "Encrypted real-time clinician chat message",
+      "type": "object",
+      "properties": {
+        "sender": {
+          "type": "string",
+          "description": "Clinician sender name"
+        },
+        "encryptedText": {
+          "type": "string",
+          "description": "Chat message text encrypted with group key"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when message was sent"
+        }
+      },
+      "required": ["sender", "encryptedText", "createdAt"]
+    }
+  },
+  "firestore": {
+    "group_config/{documentId}": {
+      "schema": "GroupConfig",
+      "description": "Holds group-level configuration, specifically the key verification block."
+    },
+    "patients/{documentId}": {
+      "schema": "Patient",
+      "description": "Houses the E2EE encrypted patient records."
+    },
+    "chats/{documentId}": {
+      "schema": "Chat",
+      "description": "Stores the encrypted live chatroom logs."
+    }
+  }
+}

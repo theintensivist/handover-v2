@@ -1,0 +1,6 @@
+{
+  "name": "ICU Handover System",
+  "description": "A secure, HIPAA-compliant full-stack ICU patient handover platform with ISBAR system-by-system details, automated calculators, drug dosage advisors, end-to-end encrypted notes, dynamic task prioritization, clinical image uploads, real-time sync, and an integrated chatroom.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
