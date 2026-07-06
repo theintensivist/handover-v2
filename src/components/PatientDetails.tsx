@@ -827,8 +827,6 @@ export default function PatientDetails({ patient, passphrase, nickname, userRole
   const [aiSummary, setAiSummary] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
-  const [customApiKey, setCustomApiKey] = useState(() => localStorage.getItem("custom_gemini_api_key") || "");
-  const [showKeyConfirmModal, setShowKeyConfirmModal] = useState(false);
   
   // Custom Toast State
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
@@ -2624,12 +2622,7 @@ export default function PatientDetails({ patient, passphrase, nickname, userRole
   };
 
   // Trigger server-side AI case, handover, or discharge summaries via Gemini
-  const handleGenerateSummary = async (forceProceed = false) => {
-    if (!customApiKey.trim() && !forceProceed) {
-      setShowKeyConfirmModal(true);
-      return;
-    }
-
+  const handleGenerateSummary = async () => {
     setAiLoading(true);
     setAiError("");
     setAiSummary("");
@@ -2642,8 +2635,7 @@ export default function PatientDetails({ patient, passphrase, nickname, userRole
         },
         body: JSON.stringify({
           patient: localPatient,
-          summaryType: summaryType,
-          customApiKey: customApiKey.trim() || undefined
+          summaryType: summaryType
         })
       });
 
@@ -3861,58 +3853,15 @@ export default function PatientDetails({ patient, passphrase, nickname, userRole
                   </p>
                 </div>
 
-                {/* Custom API Key Input option */}
-                <div className="bg-[#161616] border border-[#222222] p-4 rounded mb-6 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Lock className="w-4 h-4 text-emerald-400" />
-                      <span className="text-xs font-bold uppercase tracking-wider text-zinc-300">Custom Gemini API Key (Optional)</span>
-                    </div>
-                    <span className="text-[10px] text-zinc-500 uppercase tracking-widest font-mono font-bold">Stored Locally Only</span>
+                {/* Server-side AI Status Badge */}
+                <div className="bg-[#141414] border border-[#222222] p-4 rounded mb-6 flex gap-3 items-start">
+                  <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <span className="block text-xs font-bold uppercase tracking-wider text-emerald-400">Secure Server-Side AI Enabled</span>
+                    <p className="text-[11px] text-zinc-400 leading-relaxed">
+                      All summaries are processed entirely server-side. Patient clinical records are sent in-memory over SSL for immediate translation and are never stored in the database in plaintext. Clinical summarizing utilizes the server's configured environment key.
+                    </p>
                   </div>
-                  
-                  <p className="text-[11px] text-zinc-400 leading-relaxed">
-                    If you are deploying this app to Vercel or sharing a final version, you can provide your own Gemini API key here. It remains encrypted in your browser's local storage and is never saved to our database in plaintext.
-                  </p>
-
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <input
-                      type="password"
-                      value={customApiKey}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setCustomApiKey(val);
-                        localStorage.setItem("custom_gemini_api_key", val);
-                      }}
-                      placeholder="Enter your AI Studio API Key (AIzaSy...)"
-                      className="flex-1 bg-[#111111] border border-[#222222] focus:border-emerald-500 rounded px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none font-mono"
-                    />
-                    {customApiKey && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCustomApiKey("");
-                          localStorage.removeItem("custom_gemini_api_key");
-                        }}
-                        className="bg-[#222222] hover:bg-red-950/40 hover:text-red-400 text-zinc-400 font-bold px-3 py-2 rounded text-xs transition-all uppercase tracking-wider border border-[#333333] cursor-pointer"
-                      >
-                        Clear Key
-                      </button>
-                    )}
-                  </div>
-
-                  {!customApiKey.trim() && (
-                    <div className="text-[11px] text-amber-500/90 font-medium flex items-center gap-1.5 pt-1">
-                      <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                      <span>No custom key entered. If the shared server doesn't have a key, summaries will fail. You'll be asked to confirm.</span>
-                    </div>
-                  )}
-                  {customApiKey.trim() && (
-                    <div className="text-[11px] text-emerald-400 font-medium flex items-center gap-1.5 pt-1">
-                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span>Custom API key configured and loaded! Ready to summarize with your own Gemini quota.</span>
-                    </div>
-                  )}
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-4 items-center bg-[#1A1A1A] p-4 rounded border border-[#222222] mb-6">
@@ -4898,56 +4847,6 @@ export default function PatientDetails({ patient, passphrase, nickname, userRole
             referrerPolicy="no-referrer"
             className="max-w-full max-h-full object-contain rounded shadow-2xl"
           />
-        </div>
-      )}
-
-      {/* 4.5 Custom Gemini API Key Confirmation Modal */}
-      {showKeyConfirmModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#111111] border border-[#222222] rounded-lg max-w-md w-full p-6 space-y-4 shadow-2xl animate-fade-in">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
-                <AlertTriangle className="w-5 h-5" />
-              </div>
-              <div className="space-y-1">
-                <h3 className="text-sm font-serif italic font-bold text-zinc-100">
-                  Missing Custom Gemini API Key
-                </h3>
-                <p className="text-xs text-zinc-400 leading-relaxed">
-                  You have not entered a custom Gemini API key for clinical summarization.
-                </p>
-              </div>
-            </div>
-
-            <div className="bg-[#161616] border border-[#222222] p-3 rounded text-[11px] text-zinc-400 space-y-2">
-              <p>
-                <strong>Why this is important:</strong> If you are running the final production build on an external platform like Vercel and the environment variable <code className="text-amber-400 bg-black/40 px-1 py-0.5 rounded font-mono font-bold">GEMINI_API_KEY</code> has not been configured, this AI function will not work.
-              </p>
-              <p>
-                Would you like to enter an API key first, or confirm and proceed using the server's configured environment key?
-              </p>
-            </div>
-
-            <div className="flex gap-3 justify-end pt-2">
-              <button
-                type="button"
-                onClick={() => setShowKeyConfirmModal(false)}
-                className="bg-[#222222] hover:bg-[#2A2A2A] text-zinc-300 font-bold px-4 py-2 rounded text-xs transition-all uppercase tracking-wider border border-[#333333] cursor-pointer"
-              >
-                Go Back & Enter Key
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowKeyConfirmModal(false);
-                  handleGenerateSummary(true);
-                }}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded text-xs transition-all uppercase tracking-wider shadow-lg shadow-emerald-950/40 cursor-pointer"
-              >
-                Confirm & Proceed
-              </button>
-            </div>
-          </div>
         </div>
       )}
 

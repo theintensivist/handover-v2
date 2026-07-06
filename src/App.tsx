@@ -142,9 +142,18 @@ export default function App() {
   const [showDischargeModal, setShowDischargeModal] = useState<string | null>(null);
   const [dischargePatientName, setDischargePatientName] = useState("");
   const [uiError, setUiError] = useState<string | null>(null);
+  const [archiveConfirm, setArchiveConfirm] = useState<{
+    type: "wipe" | "restore" | "delete";
+    patientId?: string;
+    patientName?: string;
+    item?: any;
+    message: string;
+  } | null>(null);
+  const [archiveSuccessMessage, setArchiveSuccessMessage] = useState<string | null>(null);
 
   // Load authorization credentials from sessionStorage for smooth refreshes
   useEffect(() => {
+    localStorage.removeItem("custom_gemini_api_key");
     const savedName = sessionStorage.getItem("icu_doctor_name");
     const savedKey = sessionStorage.getItem("icu_group_passphrase");
     const savedRole = sessionStorage.getItem("icu_user_role");
@@ -981,10 +990,10 @@ export default function App() {
                 
                 <button
                   onClick={() => {
-                    if (confirm("Are you sure you want to completely clear the local archive directory? This will wipe all offline patient backups from this browser context. This is irreversible.")) {
-                      localStorage.removeItem("critisync_local_archives");
-                      window.location.reload();
-                    }
+                    setArchiveConfirm({
+                      type: "wipe",
+                      message: "Are you sure you want to completely clear the local archive directory? This will wipe all offline patient backups from this browser context. This is irreversible."
+                    });
                   }}
                   className="text-[10px] text-zinc-500 hover:text-red-400 font-semibold uppercase tracking-wider hover:underline flex items-center gap-1 cursor-pointer"
                 >
@@ -1142,23 +1151,14 @@ export default function App() {
 
                                         <div className="flex gap-2">
                                           <button
-                                            onClick={async () => {
-                                              if (confirm(`Do you want to restore "${item.name}" back to the active Patient Ward in the cloud?`)) {
-                                                try {
-                                                  const plainTextJson = JSON.stringify(item.jsonData);
-                                                  const encryptedBlob = await encryptData(plainTextJson, passphrase!);
-                                                  const docRef = doc(db, "patients", item.id);
-                                                  await setDoc(docRef, {
-                                                    encryptedBlob: encryptedBlob,
-                                                    updatedAt: new Date().toISOString(),
-                                                    updatedBy: nickname || "System Restore"
-                                                  });
-                                                  alert(`"${item.name}" restored successfully. Check the Patient Ward!`);
-                                                  setMainView("patients");
-                                                } catch (err: any) {
-                                                  alert("Restoration failed: " + err.message);
-                                                }
-                                              }
+                                            onClick={() => {
+                                              setArchiveConfirm({
+                                                type: "restore",
+                                                patientId: item.id,
+                                                patientName: item.name,
+                                                item: item,
+                                                message: `Do you want to restore "${item.name}" back to the active Patient Ward in the cloud?`
+                                              });
                                             }}
                                             className="text-[10px] text-emerald-500 hover:text-emerald-400 font-bold uppercase tracking-widest cursor-pointer flex items-center gap-1"
                                             title="Restore patient record to live Cloud database"
@@ -1169,11 +1169,12 @@ export default function App() {
 
                                           <button
                                             onClick={() => {
-                                              if (confirm(`Are you sure you want to delete the local archive for ${item.name}?`)) {
-                                                const updated = archives.filter((a: any) => a.id !== item.id);
-                                                localStorage.setItem("critisync_local_archives", JSON.stringify(updated));
-                                                window.location.reload();
-                                              }
+                                              setArchiveConfirm({
+                                                type: "delete",
+                                                patientId: item.id,
+                                                patientName: item.name,
+                                                message: `Are you sure you want to delete the local archive for ${item.name}?`
+                                              });
                                             }}
                                             className="text-[10px] text-red-500 hover:text-red-400 font-bold uppercase tracking-widest cursor-pointer"
                                             title="Delete local backup permanently"
@@ -1337,7 +1338,7 @@ export default function App() {
                 onClick={() => {
                   const text = `Welcome to CritiSync ICU Roster!\n\nYou have been authorized to join our CritiSync Secure Hub.\n\nType this exactly on the Lock Screen:\n• Registered Contact: ${successInvite.contact}\n• ICU Group Passphrase: ${successInvite.passphrase}\n\nAll handovers are end-to-end encrypted client-side.`;
                   navigator.clipboard.writeText(text);
-                  alert("Invitation text copied to clipboard!");
+                  setArchiveSuccessMessage("Invitation text copied to clipboard!");
                 }}
                 className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-4 rounded text-xs uppercase tracking-wider transition-colors cursor-pointer"
               >
@@ -1350,6 +1351,100 @@ export default function App() {
                 Dismiss
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Archive Action Confirmation Modal Overlay */}
+      {archiveConfirm && (
+        <div className="fixed inset-0 bg-[#000000]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in font-sans">
+          <div className="bg-[#111111] border border-[#222222] rounded shadow-2xl w-full max-w-md p-6 relative">
+            <h3 className="text-sm font-bold uppercase tracking-widest text-emerald-400 mb-3 flex items-center gap-1.5">
+              <AlertTriangle className="w-5 h-5 text-amber-500 animate-pulse" />
+              Confirm Archive Action
+            </h3>
+            
+            <p className="text-xs text-zinc-300 leading-relaxed mb-6">
+              {archiveConfirm.message}
+            </p>
+
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setArchiveConfirm(null)}
+                className="bg-[#1A1A1A] hover:bg-[#222222] border border-[#222222] text-zinc-400 font-bold text-xs uppercase tracking-wider py-2 px-4 rounded transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const { type, patientId, patientName, item } = archiveConfirm;
+                  setArchiveConfirm(null);
+                  
+                  const str = localStorage.getItem("critisync_local_archives");
+                  let archives: any[] = [];
+                  if (str) {
+                    try {
+                      archives = JSON.parse(str);
+                      if (!Array.isArray(archives)) archives = [];
+                    } catch (e) {
+                      archives = [];
+                    }
+                  }
+
+                  if (type === "wipe") {
+                    localStorage.removeItem("critisync_local_archives");
+                    setArchiveSuccessMessage("Local archive directory completely cleared.");
+                  } else if (type === "delete") {
+                    const updated = archives.filter((a: any) => a.id !== patientId);
+                    localStorage.setItem("critisync_local_archives", JSON.stringify(updated));
+                    setArchiveSuccessMessage(`Archive file for "${patientName}" deleted successfully.`);
+                  } else if (type === "restore") {
+                    try {
+                      const plainTextJson = JSON.stringify(item.jsonData);
+                      const encryptedBlob = await encryptData(plainTextJson, passphrase!);
+                      const docRef = doc(db, "patients", item.id);
+                      await setDoc(docRef, {
+                        encryptedBlob: encryptedBlob,
+                        updatedAt: new Date().toISOString(),
+                        updatedBy: nickname || "System Restore"
+                      });
+                      setArchiveSuccessMessage(`"${patientName}" restored successfully back to the active Patient Ward!`);
+                      setMainView("patients");
+                    } catch (err: any) {
+                      setUiError("Restoration failed: " + err.message);
+                    }
+                  }
+                }}
+                className={`font-bold text-xs uppercase tracking-wider py-2 px-4 rounded transition-colors cursor-pointer ${
+                  archiveConfirm.type === "restore" 
+                    ? "bg-emerald-600 hover:bg-emerald-500 text-white" 
+                    : "bg-red-600 hover:bg-red-500 text-white"
+                }`}
+              >
+                {archiveConfirm.type === "restore" ? "Confirm Restore" : archiveConfirm.type === "wipe" ? "Confirm Wipe" : "Confirm Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. Archive Action Success Toast */}
+      {archiveSuccessMessage && (
+        <div className="fixed bottom-6 right-6 z-50 animate-bounce-in max-w-sm font-sans">
+          <div className="bg-emerald-950/90 backdrop-blur-md border border-emerald-900 text-emerald-200 p-4 rounded shadow-2xl flex gap-3 items-start">
+            <ShieldCheck className="w-5 h-5 shrink-0 mt-0.5 text-emerald-400" />
+            <div className="flex-1">
+              <span className="block text-xs font-bold uppercase tracking-wider mb-1">System Feedback</span>
+              <p className="text-[11px] text-zinc-300 leading-relaxed">{archiveSuccessMessage}</p>
+            </div>
+            <button
+              onClick={() => setArchiveSuccessMessage(null)}
+              className="text-zinc-500 hover:text-zinc-300 font-bold text-xs cursor-pointer"
+            >
+              ✕
+            </button>
           </div>
         </div>
       )}
